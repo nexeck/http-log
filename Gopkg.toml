@@ -44,3 +44,7 @@
 [[constraint]]
   branch = "master"
   name = "github.com/nexeck/graceful"
+
+[[constraint]]
+  branch = "master"
+  name = "github.com/prometheus/client_golang"
