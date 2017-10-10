@@ -2,23 +2,24 @@ package server
 
 import (
 	"github.com/gorilla/websocket"
+	"github.com/nexeck/multicast"
 	"github.com/rs/zerolog/log"
 	"net/http"
 )
 
 type WSServer struct {
-	mux      *http.ServeMux
-	upgrader websocket.Upgrader
-	chLogs   <-chan Log
+	mux             *http.ServeMux
+	upgrader        websocket.Upgrader
+	multicastMember *multicast.Member
 }
 
-func NewWSServer(chLogs <-chan Log) *WSServer {
+func NewWSServer(multicastMember *multicast.Member) *WSServer {
 	s := &WSServer{
 		mux: http.NewServeMux(),
 		upgrader: websocket.Upgrader{
 			CheckOrigin: func(r *http.Request) bool { return true },
 		},
-		chLogs: chLogs,
+		multicastMember: multicastMember,
 	}
 
 	s.mux.HandleFunc("/http-debug", s.httpDebug)
@@ -36,8 +37,7 @@ func (s *WSServer) httpDebug(w http.ResponseWriter, r *http.Request) {
 
 	for {
 		select {
-		// send message to the client
-		case logMessage := <-s.chLogs:
+		case logMessage := <-s.multicastMember.Read():
 			err = c.WriteJSON(logMessage)
 			if err != nil {
 				log.Error().Err(err).Msg("Write failed")

@@ -1,17 +1,15 @@
 package main
 
 import (
-	"context"
 	"github.com/jessevdk/go-flags"
+	gracefulhttp "github.com/nexeck/graceful/http"
 	"github.com/nexeck/http-log/server"
+	"github.com/nexeck/multicast"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"net/http"
 	"os"
-	"os/signal"
 	"sync"
-	"syscall"
-	"time"
 )
 
 type Config struct {
@@ -21,7 +19,8 @@ type Config struct {
 		Bind string `long:"http-bind" description:"address and port to bind to" default:":8080"`
 	}
 	WS struct {
-		Bind string `long:"ws-bind" description:"address and port to bind to" default:":8081"`
+		Enabled bool   `long:"ws-enable" description:"enable websocket"`
+		Bind    string `long:"ws-bind" description:"address and port to bind to" default:":8081"`
 	}
 }
 
@@ -52,79 +51,60 @@ func main() {
 	}
 
 	var wg sync.WaitGroup
-	chLogs := make(chan server.Log)
+	multicastGroup := multicast.NewGroup()
+	go multicastGroup.Broadcast()
+	defer multicastGroup.Quit()
 
-	startHTTPServer(&wg, chLogs)
-	startWSServer(&wg, chLogs)
-	startLogServer(&wg, chLogs)
+	startHTTPServer(&wg, multicastGroup)
+
+	if config.WS.Enabled {
+		startWSServer(&wg, multicastGroup.Join())
+	}
+
+	startLogServer(&wg, multicastGroup.Join())
 
 	wg.Wait()
-	close(chLogs)
 }
 
-func startHTTPServer(wg *sync.WaitGroup, chLogs chan server.Log) {
+func startHTTPServer(wg *sync.WaitGroup, multicastGroup *multicast.Group) {
 	httpServer := &http.Server{
 		Addr:    config.HTTP.Bind,
-		Handler: server.NewHTTPServer(chLogs),
+		Handler: server.NewHTTPServer(multicastGroup),
 	}
 
-	wg.Add(1)
-	go func(wg *sync.WaitGroup) {
-		log.Info().Msgf("HTTP Listen Address: %s", config.HTTP.Bind)
-		log.Error().Err(httpServer.ListenAndServe()).Msg("HTTPServer startup failed")
-
-		wg.Done()
-	}(wg)
+	gracefulHTTP := gracefulhttp.New(httpServer, 5)
 
 	wg.Add(1)
 	go func(wg *sync.WaitGroup) {
-		graceful(httpServer, "HTTPServer", 5*time.Second)
+		defer wg.Done()
 
-		wg.Done()
+		gracefulHTTP.Run()
 	}(wg)
 }
 
-func startWSServer(wg *sync.WaitGroup, chLogs chan server.Log) {
+func startWSServer(wg *sync.WaitGroup, multicastMember *multicast.Member) {
 	wsServer := &http.Server{
 		Addr:    config.WS.Bind,
-		Handler: server.NewWSServer(chLogs),
+		Handler: server.NewWSServer(multicastMember),
 	}
+
+	gracefulHTTP := gracefulhttp.New(wsServer, 5)
 
 	wg.Add(1)
 	go func(wg *sync.WaitGroup) {
-		log.Info().Msgf("WS Listen Address: %s", config.WS.Bind)
-		log.Error().Err(wsServer.ListenAndServe()).Msg("WSServer startup failed")
+		defer wg.Done()
 
-		wg.Done()
+		gracefulHTTP.Run()
 	}(wg)
+}
+
+func startLogServer(wg *sync.WaitGroup, multicastMember *multicast.Member) {
+	logServer := server.NewLogServer(multicastMember)
 
 	wg.Add(1)
-	go func(wg *sync.WaitGroup) {
-		graceful(wsServer, "WSServer", 5*time.Second)
+	go func(wg *sync.WaitGroup, logServer *server.LogServer) {
+		defer wg.Done()
 
-		wg.Done()
-	}(wg)
-}
-
-func startLogServer(wg *sync.WaitGroup, chLogs chan server.Log) {
-	logServer := server.NewLogServer(chLogs)
-
-	logServer.Log()
-}
-
-func graceful(hs *http.Server, serverName string, timeout time.Duration) {
-	stop := make(chan os.Signal, 1)
-
-	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
-
-	<-stop
-
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
-
-	log.Info().Msgf("Shutdown %s with timeout: %s", serverName, timeout)
-
-	if err := hs.Shutdown(ctx); err != nil {
-		log.Error().Err(err).Msgf("Failed stop %s", serverName)
-	}
+		logServer.Run()
+	}(wg, logServer)
 }

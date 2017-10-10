@@ -1,32 +1,48 @@
 package server
 
 import (
+	"github.com/nexeck/multicast"
 	"github.com/rs/zerolog/log"
+	"os"
+	"os/signal"
 )
 
 type LogServer struct {
-	chLogs <-chan Log
+	multicastMember *multicast.Member
+	quit            chan bool
 }
 
-func NewLogServer(chLogs <-chan Log) *LogServer {
+func NewLogServer(multicastMember *multicast.Member) *LogServer {
 	s := &LogServer{
-		chLogs: chLogs,
+		multicastMember: multicastMember,
+		quit:            make(chan bool),
 	}
 
 	return s
 }
 
-func (s *LogServer) Log() {
+func (s *LogServer) Run() {
+	stopChan := make(chan os.Signal)
+	signal.Notify(stopChan, os.Interrupt)
+
+	go func(logServer *LogServer) {
+		<-stopChan
+		logServer.Quit()
+	}(s)
+
 	for {
 		select {
-		// send message to the client
-		case logMessage := <-s.chLogs:
-			log.Debug().
-				Str("Proto", logMessage.Proto).
-				Str("Uri", logMessage.Uri).
-				Str("Method", logMessage.Method).
-				Str("Body", logMessage.Body).
-				Msg("Request")
+		case logMessage := <-s.multicastMember.Read():
+			log.Info().Interface("Run", logMessage).Msg("Received")
+
+		case <-s.quit:
+			log.Info().Msg("Shutdown Log Server")
+			return
+
 		}
 	}
+}
+
+func (s *LogServer) Quit() {
+	s.quit <- true
 }
