@@ -14,6 +14,18 @@
   version = "v1.3.0"
 
 [[projects]]
+  branch = "master"
+  name = "github.com/nexeck/graceful"
+  packages = ["http"]
+  revision = "251f3e61123697ae71a19affb2238ff181be1406"
+
+[[projects]]
+  branch = "master"
+  name = "github.com/nexeck/multicast"
+  packages = ["."]
+  revision = "e3b39442bd279543045550f66b55f8138643c435"
+
+[[projects]]
   name = "github.com/rs/zerolog"
   packages = [".","internal/json","log"]
   revision = "3ac71fc58dbd43122668a912b755b0979ba9ce1f"
@@ -22,6 +34,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "ed1109dc65675415dcd414875b0615c4bdfd1f426155e1dbcb13131ffc2a10db"
+  inputs-digest = "f46b75f3e43aa81ba8eea8fbef0431c7fcb2a00141975d6d17a018940490f0ba"
   solver-name = "gps-cdcl"
   solver-version = 1
