@@ -5,11 +5,9 @@ import (
 	gracefulhttp "github.com/nexeck/graceful/http"
 	"github.com/nexeck/http-log/server"
 	"github.com/nexeck/multicast"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"net/http"
-	"net/http/pprof"
 	"os"
 	"sync"
 )
@@ -23,14 +21,6 @@ type Config struct {
 	WS struct {
 		Enabled bool   `long:"ws-enable" description:"enable websocket"`
 		Bind    string `long:"ws-bind" description:"address and port to bind to" default:":8081"`
-	}
-	Pprof struct {
-		Enable bool   `long:"pprof-enable" description:"enable pprof"`
-		Bind   string `long:"pprof-bind" description:"address and port to bind to" default:":8082"`
-	}
-	Metrics struct {
-		Enable bool   `long:"metrics-enable" description:"enable metrics"`
-		Bind   string `long:"metrics-bind" description:"address and port to bind to" default:":8083"`
 	}
 }
 
@@ -72,14 +62,6 @@ func main() {
 	}
 
 	startLogServer(&wg, multicastGroup.Join())
-
-	if config.Pprof.Enable {
-		startPprofServer(&wg)
-	}
-
-	if config.Metrics.Enable {
-		startMetricsServer(&wg)
-	}
 
 	wg.Wait()
 }
@@ -125,49 +107,4 @@ func startLogServer(wg *sync.WaitGroup, multicastMember *multicast.Member) {
 
 		logServer.Run()
 	}(wg, logServer)
-}
-
-func startPprofServer(wg *sync.WaitGroup) {
-	httpServer := &http.Server{
-		Addr: config.Pprof.Bind,
-	}
-
-	r := http.NewServeMux()
-
-	// Register pprof handlers
-	r.HandleFunc("/debug/pprof/", pprof.Index)
-	r.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
-	r.HandleFunc("/debug/pprof/profile", pprof.Profile)
-	r.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
-	r.HandleFunc("/debug/pprof/trace", pprof.Trace)
-
-	httpServer.Handler = r
-
-	gracefulHTTP := gracefulhttp.New(httpServer, 5)
-
-	wg.Add(1)
-	go func(wg *sync.WaitGroup) {
-		defer wg.Done()
-
-		gracefulHTTP.Run()
-	}(wg)
-}
-
-func startMetricsServer(wg *sync.WaitGroup) {
-	httpServer := &http.Server{
-		Addr: config.Metrics.Bind,
-	}
-
-	r := http.NewServeMux()
-	r.Handle("/metrics", promhttp.Handler())
-	httpServer.Handler = r
-
-	gracefulHTTP := gracefulhttp.New(httpServer, 5)
-
-	wg.Add(1)
-	go func(wg *sync.WaitGroup) {
-		defer wg.Done()
-
-		gracefulHTTP.Run()
-	}(wg)
 }
